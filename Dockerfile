@@ -6,6 +6,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY collectors/ /app/collectors/
+# US 일봉용 레거시 경로 (Spring이 기대하는 스크립트)
 COPY collectors/us_daily_collector.py /app/collector.py
 COPY app.py .
 
