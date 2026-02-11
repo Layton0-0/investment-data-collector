@@ -4,6 +4,9 @@ US 시장 일별 시세 수집 (yfinance).
 기준일 OHLCV·거래대금(volume*close) 수집 후 JSON 배열을 stdout으로 출력.
 Spring UsMarketCollectionService에서 이 서비스를 HTTP로 호출해 파싱·TB_DAILY_STOCK(MARKET=US) 저장.
 
+수정주가 정책(ADR 19): 팩터·백테스트 입력은 수정주가만 사용. yfinance history(auto_adjust=True)로
+배당·분할 반영된 수정주가를 수집한다.
+
 사용:
   python us_daily_collector.py --bas-dt 2026-01-30
   python us_daily_collector.py --bas-dt 2026-01-30 --symbols AAPL,MSFT,GOOGL
@@ -36,7 +39,8 @@ def fetch_us_daily(bas_dt: str, symbols: List[str]) -> List[Dict[str, Any]]:
             continue
         try:
             ticker = yf.Ticker(symbol)
-            hist = ticker.history(start=start, end=end, auto_adjust=False)
+            # auto_adjust=True: 수정주가(배당·분할 반영). 팩터·백테스트는 수정주가만 사용(ADR 19).
+            hist = ticker.history(start=start, end=end, auto_adjust=True)
             if hist is None or hist.empty:
                 continue
             for idx, row in hist.iterrows():
