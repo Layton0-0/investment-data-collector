@@ -3,3 +3,21 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+.coverage
+htmlcov/
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
