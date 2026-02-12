@@ -26,6 +26,9 @@ jobs:
       - name: Set OWNER_LOWER for GHCR (repository name must be lowercase)
         run: echo "OWNER_LOWER=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
+      - name: Set short SHA for image tag (7 chars, CD-friendly)
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -45,6 +48,7 @@ jobs:
           push: true
           tags: |
             ghcr.io/${{ env.OWNER_LOWER }}/investment-data-collector:sha-${{ github.sha }}
+            ghcr.io/${{ env.OWNER_LOWER }}/investment-data-collector:sha-${{ env.SHORT_SHA }}
             ghcr.io/${{ env.OWNER_LOWER }}/investment-data-collector:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
