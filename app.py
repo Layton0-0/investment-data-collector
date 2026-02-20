@@ -106,8 +106,38 @@ def sec_collect():
     return result
 
 
+@app.post("/yonhap-collect")
+def yonhap_collect():
+    """연합뉴스 RSS 수집 후 Spring 내부 API로 전송. (Speed 계층)"""
+    from collectors.yonhap_collector import fetch_yonhap_news
+    items = fetch_yonhap_news()
+    result = _post_collected_news(items)
+    return result
+
+
+@app.post("/naver-collect")
+def naver_collect():
+    """네이버 금융 뉴스 수집 후 Spring 내부 API로 전송. (Buzz 계층)"""
+    from collectors.naver_collector import fetch_naver_news
+    items = fetch_naver_news()
+    result = _post_collected_news(items)
+    return result
+
+
+@app.post("/google-news-collect")
+def google_news_collect():
+    """Google News RSS 수집 후 Spring 내부 API로 전송. (Speed 계층 - Reuters 대안)"""
+    from collectors.google_news_collector import fetch_google_news
+    items = fetch_google_news()
+    result = _post_collected_news(items)
+    return result
+
+
 # ----- 스케줄러 (SCHEDULE_DART_SEC=1 일 때만) -----
 _scheduler = None
+
+# Speed/Buzz 스케줄 활성화 여부 (SCHEDULE_SPEED_BUZZ=1)
+SCHEDULE_SPEED_BUZZ = os.environ.get("SCHEDULE_SPEED_BUZZ", "").strip() == "1"
 
 
 def _run_dart_job():
@@ -131,21 +161,67 @@ def _run_sec_job():
         print(f"SEC 스케줄 실행 오류: {e}", file=sys.stderr)
 
 
+def _run_yonhap_job():
+    """연합뉴스 RSS 수집 (Speed 계층)"""
+    try:
+        from collectors.yonhap_collector import fetch_yonhap_news
+        items = fetch_yonhap_news()
+        if items:
+            _post_collected_news(items)
+    except Exception as e:
+        print(f"연합뉴스 스케줄 실행 오류: {e}", file=sys.stderr)
+
+
+def _run_naver_job():
+    """네이버 금융 뉴스 수집 (Buzz 계층)"""
+    try:
+        from collectors.naver_collector import fetch_naver_news
+        items = fetch_naver_news()
+        if items:
+            _post_collected_news(items)
+    except Exception as e:
+        print(f"네이버 금융 스케줄 실행 오류: {e}", file=sys.stderr)
+
+
+def _run_google_news_job():
+    """Google News RSS 수집 (Speed 계층)"""
+    try:
+        from collectors.google_news_collector import fetch_google_news
+        items = fetch_google_news()
+        if items:
+            _post_collected_news(items)
+    except Exception as e:
+        print(f"Google News 스케줄 실행 오류: {e}", file=sys.stderr)
+
+
 @app.on_event("startup")
 def startup():
-    if not SCHEDULE_DART_SEC:
+    global _scheduler
+    
+    if not SCHEDULE_DART_SEC and not SCHEDULE_SPEED_BUZZ:
         return
+    
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.interval import IntervalTrigger
-        global _scheduler
+        
         _scheduler = BackgroundScheduler(timezone="Asia/Seoul")
-        _scheduler.add_job(_run_dart_job, IntervalTrigger(minutes=10), id="dart")
-        _scheduler.add_job(_run_sec_job, IntervalTrigger(minutes=15), id="sec")
+        
+        if SCHEDULE_DART_SEC:
+            _scheduler.add_job(_run_dart_job, IntervalTrigger(minutes=10), id="dart")
+            _scheduler.add_job(_run_sec_job, IntervalTrigger(minutes=15), id="sec")
+            print("DART/SEC 스케줄러 등록: DART 10분, SEC 15분 주기", file=sys.stderr)
+        
+        if SCHEDULE_SPEED_BUZZ:
+            _scheduler.add_job(_run_yonhap_job, IntervalTrigger(minutes=5), id="yonhap")
+            _scheduler.add_job(_run_naver_job, IntervalTrigger(minutes=10), id="naver")
+            _scheduler.add_job(_run_google_news_job, IntervalTrigger(minutes=5), id="google_news")
+            print("Speed/Buzz 스케줄러 등록: 연합뉴스 5분, 네이버 10분, Google News 5분 주기", file=sys.stderr)
+        
         _scheduler.start()
-        print("DART/SEC 스케줄러 시작: DART 10분, SEC 15분 주기", file=sys.stderr)
+        print("스케줄러 시작 완료", file=sys.stderr)
     except ImportError:
-        print("SCHEDULE_DART_SEC=1 이지만 apscheduler 미설치. pip install apscheduler", file=sys.stderr)
+        print("apscheduler 미설치. pip install apscheduler", file=sys.stderr)
 
 
 @app.on_event("shutdown")
