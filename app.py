@@ -4,11 +4,14 @@
 - DART/SEC 공시: 이 서비스가 수집 후 Spring POST /api/v1/internal/collected-news 로 전달.
 Docker 기동 시 /app/collector.py (collectors/us_daily_collector.py 복사본) 사용.
 """
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -90,6 +93,8 @@ def us_daily(req: UsDailyRequest):
 @app.post("/dart-collect")
 def dart_collect():
     """DART 공시 수집 후 Spring 내부 API로 전송. (배치 역할: Python에서 수행)"""
+    if not os.environ.get("DART_API_KEY", "").strip():
+        return {"received": 0, "saved": 0, "reason": "DART_API_KEY not set"}
     from collectors.dart_collector import fetch_dart_for_days, to_collected_items
     raw = fetch_dart_for_days()
     items = to_collected_items(raw)
@@ -100,6 +105,8 @@ def dart_collect():
 @app.post("/sec-collect")
 def sec_collect():
     """SEC EDGAR 공시 수집 후 Spring 내부 API로 전송. (배치 역할: Python에서 수행)"""
+    if not os.environ.get("SEC_API_KEY", "").strip():
+        return {"received": 0, "saved": 0, "reason": "SEC_API_KEY not set"}
     from collectors.sec_edgar_collector import fetch_sec_recent_filings
     items = fetch_sec_recent_filings()
     result = _post_collected_news(items)
