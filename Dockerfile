@@ -1,5 +1,6 @@
 # US 일봉 수집 서비스. Spring이 HTTP로 호출.
 FROM python:3.11-slim
+ENV TZ=Asia/Seoul
 
 WORKDIR /app
 
