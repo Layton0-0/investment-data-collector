@@ -7,9 +7,11 @@ Spring UsMarketCollectionService에서 이 서비스를 HTTP로 호출해 파싱
 수정주가 정책(ADR 19): 팩터·백테스트 입력은 수정주가만 사용. yfinance history(auto_adjust=True)로
 배당·분할 반영된 수정주가를 수집한다.
 
+유니버스: API 호출 시 Backend가 보낸 symbols 사용. CLI 기본값은 지수·섹터 ETF + 대표 주식(퀀트용).
+
 사용:
   python us_daily_collector.py --bas-dt 2026-01-30
-  python us_daily_collector.py --bas-dt 2026-01-30 --symbols AAPL,MSFT,GOOGL
+  python us_daily_collector.py --bas-dt 2026-01-30 --symbols SPY,QQQ,AAPL,MSFT
 
 필요: pip install yfinance
 """
@@ -83,10 +85,14 @@ def fetch_us_daily(bas_dt: str, symbols: List[str]) -> List[Dict[str, Any]]:
     return rows
 
 
+# CLI 기본 유니버스: 지수·섹터 ETF(듀얼모멘텀) + 대표 주식. API 호출 시에는 Backend가 전달한 symbols 사용
+DEFAULT_SYMBOLS = "SPY,QQQ,IWM,TLT,IEF,BIL,GLD,DBC,XLK,XLF,XLE,XLV,XLY,XLP,XLB,XLI,XLC,AAPL,MSFT,GOOGL,AMZN,META,TSLA,NVDA,JPM,V,JNJ,WMT,UNH,HD,PG,MA,BAC,XOM,CVX"
+
+
 def main():
     parser = argparse.ArgumentParser(description="US 일별 시세 수집 (yfinance)")
     parser.add_argument("--bas-dt", required=True, help="기준일 YYYY-MM-DD")
-    parser.add_argument("--symbols", default="AAPL,MSFT,GOOGL,AMZN,META,TSLA,NVDA,JPM,V,JNJ", help="쉼표 구분 종목 코드")
+    parser.add_argument("--symbols", default=DEFAULT_SYMBOLS, help="쉼표 구분 종목 코드 (기본: 지수·섹터 ETF + 대표 주식)")
     args = parser.parse_args()
 
     symbols = [s.strip() for s in args.symbols.split(",") if s.strip()]

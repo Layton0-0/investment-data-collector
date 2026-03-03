@@ -6,7 +6,10 @@ Docker 기동 시 /app/collector.py (collectors/us_daily_collector.py 복사본)
 """
 from pathlib import Path
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent / ".env")
+
+# 프로젝트 루트 .env 로드 (DART_API_KEY, SEC_API_KEY, KRX_AUTH_KEY, DATA_COLLECTION_INTERNAL_KEY 등)
+_env_path = Path(__file__).resolve().parent / ".env"
+load_dotenv(_env_path)
 
 import json
 import os
@@ -104,9 +107,7 @@ def dart_collect():
 
 @app.post("/sec-collect")
 def sec_collect():
-    """SEC EDGAR 공시 수집 후 Spring 내부 API로 전송. (배치 역할: Python에서 수행)"""
-    if not os.environ.get("SEC_API_KEY", "").strip():
-        return {"received": 0, "saved": 0, "reason": "SEC_API_KEY not set"}
+    """SEC EDGAR 공시 수집 후 Spring 내부 API로 전송. (배치 역할: Python에서 수행). data.sec.gov는 API 키 없이 User-Agent만으로 조회 가능."""
     from collectors.sec_edgar_collector import fetch_sec_recent_filings
     items = fetch_sec_recent_filings()
     result = _post_collected_news(items)

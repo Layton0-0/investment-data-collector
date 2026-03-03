@@ -3,34 +3,102 @@
 SEC EDGAR 공시 수집 (submissions/CIK{cik}.json)
 수집 결과를 Spring 내부 API POST /api/v1/internal/collected-news 로 전달.
 
-필요 환경변수:
-  SEC_API_KEY: SEC API 키 (X-SEC-API-Key 헤더). 필수
-  SEC_BASE_URL: 기본 https://data.sec.gov
-  SEC_COLLECT_DAYS: 수집 기간(일). 기본 3
-  SEC_CIKS: 수집 대상 CIK 목록 (쉼표 구분, 10자리). 기본 Apple,Microsoft,Amazon
-  SPRING_BASE_URL: Spring 서버 URL
-  DATA_COLLECTION_INTERNAL_KEY: Spring investment.data.internal-api-key 와 동일
+유니버스: SEC_CIKS가 있으면 해당 CIK만 사용. 없으면 SEC_UNIVERSE(top100|top200|top500)에 따라
+매 실행마다 SEC company_tickers.json을 새로 받아와 그 시점 기준 상위 N개 CIK로 수집.
+(캐시 없음. TOP100/200/500은 상장·변동에 따라 매일 달라지므로 매번 최신 목록 수신 후 진행.)
 """
 import os
 import sys
 import json
+import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 SEC_BASE_URL = os.environ.get("SEC_BASE_URL", "https://data.sec.gov").rstrip("/")
-SEC_API_KEY = os.environ.get("SEC_API_KEY", "")
-SEC_COLLECT_DAYS = int(os.environ.get("SEC_COLLECT_DAYS", "3"))
-# Apple, Microsoft, Amazon
-DEFAULT_CIKS = ["0000320193", "0000789019", "0001018724"]
-SEC_CIKS_STR = os.environ.get("SEC_CIKS", "")
-SEC_CIKS_LIST = [c.strip() for c in SEC_CIKS_STR.split(",") if c.strip()] if SEC_CIKS_STR else DEFAULT_CIKS
+SEC_API_KEY = (os.environ.get("SEC_API_KEY") or "").strip()
+SEC_COLLECT_DAYS = int(os.environ.get("SEC_COLLECT_DAYS", "7"))
+SEC_UNIVERSE = (os.environ.get("SEC_UNIVERSE") or "top200").strip().lower()
+SEC_CIKS_STR = os.environ.get("SEC_CIKS", "").strip()
+# SEC_CIKS가 명시되면 그대로 사용; 없으면 company_tickers에서 로드
+SEC_CIKS_LIST: List[str] = (
+    [c.strip() for c in SEC_CIKS_STR.split(",") if c.strip()]
+    if SEC_CIKS_STR
+    else []  # 나중에 resolve_sec_ciks()로 채움
+)
+SEC_RATE_LIMIT_DELAY = 0.11  # SEC 10 req/sec 준수
 
 SPRING_BASE_URL = os.environ.get("SPRING_BASE_URL", "http://localhost:8080")
 INTERNAL_KEY = os.environ.get("DATA_COLLECTION_INTERNAL_KEY", "")
 
-USER_AGENT = "InvestmentChoi/1.0 (SEC EDGAR data collection)"
+# SEC는 User-Agent에 연락처(이메일) 포함을 권장. 없으면 403 가능.
+SEC_USER_AGENT = (
+    os.environ.get("SEC_USER_AGENT") or "InvestmentChoi/1.0 (SEC EDGAR; admin@example.com)"
+).strip() or "InvestmentChoi/1.0 (SEC EDGAR; admin@example.com)"
+
+COMPANY_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+_UNIVERSE_TOP = {"top100": 100, "top200": 200, "top500": 500}
+
+
+def _cik_to_10(cik_any: Any) -> str:
+    """CIK를 10자리 문자열로 (앞 0 패딩)."""
+    if cik_any is None:
+        return ""
+    if isinstance(cik_any, int):
+        return str(cik_any).zfill(10)
+    s = str(cik_any).strip()
+    if not s.isdigit():
+        return ""
+    return s.zfill(10)
+
+
+def fetch_company_tickers_ciks(
+    _base_url: str, user_agent: str, limit: int = 200
+) -> List[str]:
+    """
+    매 호출 시 SEC에서 최신 company_tickers.json을 받아와 CIK 목록 반환. 캐시 없음.
+    (TOP N은 상장·변동으로 매일 달라지므로 매 실행마다 수신 후 진행.)
+    limit만큼 상위(인덱스 순) 사용. 구조: {"0": {"cik_str": 320193, "ticker": "AAPL", ...}, ...}
+    """
+    url = "https://www.sec.gov/files/company_tickers.json"
+    req = urllib.request.Request(url, headers={"User-Agent": user_agent}, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode())
+        print(f"SEC company_tickers 최신 수신 완료, 상위 {limit}개 CIK 사용", file=sys.stderr)
+    except Exception as e:
+        print(f"SEC company_tickers 로드 실패: {e}", file=sys.stderr)
+        return []
+    if not isinstance(data, dict):
+        return []
+    ciks: List[str] = []
+    keys = sorted(data.keys(), key=lambda k: int(k) if k.isdigit() else 0)
+    for k in keys:
+        if len(ciks) >= limit:
+            break
+        ent = data.get(k)
+        if not isinstance(ent, dict):
+            continue
+        cik = _cik_to_10(ent.get("cik_str") or ent.get("cik"))
+        if cik and cik not in ciks:
+            ciks.append(cik)
+    return ciks
+
+
+def resolve_sec_ciks() -> List[str]:
+    """
+    수집에 사용할 CIK 목록. SEC_CIKS가 있으면 해당 고정 목록.
+    없으면 매번 SEC에서 최신 company_tickers 수신 후 SEC_UNIVERSE(top100|top200|top500)만큼 사용.
+    """
+    if SEC_CIKS_STR:
+        return [c.strip() for c in SEC_CIKS_STR.split(",") if c.strip()]
+    n = _UNIVERSE_TOP.get(SEC_UNIVERSE, 200)
+    ciks = fetch_company_tickers_ciks(SEC_BASE_URL, SEC_USER_AGENT, limit=n)
+    if not ciks:
+        # fallback: 소수 대형주 (레거시 호환)
+        return ["0000320193", "0000789019", "0001018724", "0001640148", "0001652044"]
+    return ciks
 
 
 def _build_document_url(cik: str, accession_number: str, primary_document: Optional[str]) -> str:
@@ -56,20 +124,22 @@ def fetch_submissions_for_cik(
     api_key: str,
     cik: str,
     since_date: datetime,
+    user_agent: str,
 ) -> List[Dict[str, Any]]:
     """한 CIK에 대해 submissions JSON 조회 후 since_date 이후 제출 건만 반환."""
     url = f"{base_url}/submissions/CIK{cik}.json"
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": USER_AGENT,
-            "X-SEC-API-Key": api_key,
-        },
-        method="GET",
-    )
+    headers = {"User-Agent": user_agent}
+    if api_key:
+        headers["X-SEC-API-Key"] = api_key
+    req = urllib.request.Request(url, headers=headers, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        print(f"SEC API HTTP 오류 cik={cik}: {e.code} {e.reason}", file=sys.stderr)
+        if e.code == 403:
+            print("  → User-Agent에 연락처 이메일 포함 권장. SEC_USER_AGENT 환경변수 설정.", file=sys.stderr)
+        return []
     except Exception as e:
         print(f"SEC API 호출 실패 cik={cik}: {e}", file=sys.stderr)
         return []
@@ -118,14 +188,26 @@ def fetch_submissions_for_cik(
     return items
 
 
-def fetch_sec_recent_filings(days: int = SEC_COLLECT_DAYS) -> List[Dict[str, Any]]:
-    """설정된 CIK 목록으로 최근 N일 SEC 제출 건 수집."""
-    if not SEC_API_KEY or not SEC_API_KEY.strip():
+def fetch_sec_recent_filings(days: Optional[int] = None) -> List[Dict[str, Any]]:
+    """
+    최근 N일 SEC 제출 건 수집. 매 실행 시 최신 유니버스(company_tickers) 수신 후 진행.
+    SEC 10 req/sec 준수.
+    """
+    n_days = days if days is not None else SEC_COLLECT_DAYS
+    n_days = max(7, n_days)
+    since = datetime.now() - timedelta(days=n_days)
+    ciks = resolve_sec_ciks()  # SEC_CIKS 없으면 매번 최신 company_tickers에서 로드
+    if not ciks:
         return []
-    since = datetime.now() - timedelta(days=days)
     all_items: List[Dict[str, Any]] = []
-    for cik in SEC_CIKS_LIST:
-        all_items.extend(fetch_submissions_for_cik(SEC_BASE_URL, SEC_API_KEY, cik, since))
+    for i, cik in enumerate(ciks):
+        if i > 0:
+            time.sleep(SEC_RATE_LIMIT_DELAY)
+        all_items.extend(
+            fetch_submissions_for_cik(
+                SEC_BASE_URL, SEC_API_KEY, cik, since, SEC_USER_AGENT
+            )
+        )
     return all_items
 
 
@@ -164,9 +246,6 @@ def post_to_spring(items: List[Dict[str, Any]]) -> bool:
 
 
 def main() -> int:
-    if not SEC_API_KEY or not SEC_API_KEY.strip():
-        print("SEC_API_KEY 미설정", file=sys.stderr)
-        return 1
     items = fetch_sec_recent_filings(SEC_COLLECT_DAYS)
     if not items:
         print("SEC EDGAR 수집 항목 없음")

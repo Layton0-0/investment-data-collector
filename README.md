@@ -35,10 +35,12 @@
 | DART_API_KEY | Open DART API 인증키 (DART 수집 시 필수) |
 | DART_BASE_URL | DART API 기본 URL (기본: https://opendart.fss.or.kr/api) |
 | DART_COLLECT_DAYS | DART 수집 기간(일). 기본 3 |
-| SEC_API_KEY | SEC API 키 (X-SEC-API-Key, SEC 수집 시 필수) |
+| SEC_USER_AGENT | User-Agent (연락처 이메일 포함 권장). **403 방지용** |
+| SEC_API_KEY | (선택) X-SEC-API-Key. data.sec.gov 공식 API는 키 불필요 |
 | SEC_BASE_URL | SEC API 기본 URL (기본: https://data.sec.gov) |
-| SEC_COLLECT_DAYS | SEC 수집 기간(일). 기본 3 |
-| SEC_CIKS | 수집 대상 CIK 목록 (쉼표 구분). 미설정 시 Apple, Microsoft, Amazon |
+| SEC_COLLECT_DAYS | 수집 기간(일). 기본 7 |
+| SEC_UNIVERSE | top100 \| top200 \| top500. SEC_CIKS 미설정 시 **매 실행마다** SEC company_tickers 수신 후 상위 N개 CIK 사용 (기본 top200). 캐시 없음. |
+| SEC_CIKS | (선택) 고정 CIK 목록. 있으면 SEC_UNIVERSE 무시(매일 갱신 없음) |
 | SPRING_BASE_URL | Spring 서버 URL (내부 API 전송용) |
 | DATA_COLLECTION_INTERNAL_KEY | Spring investment.data.internal-api-key 와 동일 (내부 API 인증) |
 | SCHEDULE_DART_SEC | 1 이면 기동 시 DART 10분/ SEC 15분 주기 스케줄러 활성화 |
