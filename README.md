@@ -79,6 +79,19 @@ docker run -p 8001:8001 \
 
 스케줄러 사용 시 `-e SCHEDULE_DART_SEC=1` 추가.
 
+## US 일별 수집 검증 절차 (0건 시 점검)
+
+Backend에서 US 일별 수집이 계속 0건일 때 아래 순서로 확인한다.
+
+| 순서 | 항목 | 확인 방법 |
+|------|------|-----------|
+| 1 | 수집기 기동 | `GET http://<collector-url>/health` → 200 및 `{"status":"ok"}` |
+| 2 | 스크립트 경로 (Docker) | Docker 빌드 시 `collectors/us_daily_collector.py`가 `/app/collector.py`로 복사되는지 Dockerfile 확인. 컨테이너 내 `ls /app/collector.py` |
+| 3 | yfinance 설치 | 컨테이너 또는 로컬에서 `python -c "import yfinance"` 성공 여부 |
+| 4 | Backend→수집기 접근 | Backend와 동일 Docker 네트워크에서 실행 시 `collector-url`을 서비스명으로 설정 (예: `http://data-collector:8001`). 호스트에서 Backend 실행 시 `http://localhost:8001` |
+
+주말·미국 공휴일에는 거래가 없어 0건은 정상이다. 평일인데도 0건이면 위 1–4와 수집기 로그·stderr를 확인한다. 상세는 [plans/qa/데이터_부재_점검_가이드.md §4 US 일별 수집 0건](../plans/qa/데이터_부재_점검_가이드.md) 참고.
+
 ## Cron / Jenkins
 
 Spring에서 더 이상 DART/SEC 배치를 실행하지 않으므로, 외부 cron 또는 Jenkins에서 주기적으로 호출할 수 있다.
