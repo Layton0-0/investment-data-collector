@@ -10,9 +10,10 @@ Open DART 공시 목록 수집 (list.json API)
   SPRING_BASE_URL: Spring 서버 URL (예: http://localhost:8080)
   DATA_COLLECTION_INTERNAL_KEY: Spring investment.data.internal-api-key 와 동일
 """
+import json
+import logging
 import os
 import sys
-import json
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -27,9 +28,12 @@ INTERNAL_KEY = os.environ.get("DATA_COLLECTION_INTERNAL_KEY", "")
 
 MAX_PAGE_COUNT = 100
 
-# 시그널 반영용 키워드 (13-news-collection-design: 무상증자·영업익 30% 증가 등)
+_logger = logging.getLogger(__name__)
+
+# 시그널 반영용 키워드 (13-news-collection-design: 무상증자·감자·영업익 30% 증가 등)
 DART_SIGNAL_KEYWORDS = [
     "무상증자",
+    "감자",
     "유상증자",
     "영업익",
     "30% 증가",
@@ -40,6 +44,9 @@ DART_SIGNAL_KEYWORDS = [
     "M&A",
     "인수",
 ]
+
+# 백엔드 필터용 eventType 접두사 (시그널 반영 대상 표시)
+DART_SIGNAL_EVENT_TYPE_PREFIX = "DART_SIGNAL:"
 
 
 def _matches_signal_keyword(text: Optional[str]) -> bool:
@@ -125,9 +132,11 @@ def to_collected_items(raw_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         summary = f"{corp_name} / {flr_nm}".strip(" /") if (corp_name or flr_nm) else None
         stock_code = row.get("stock_code")
         symbol = str(stock_code).strip() if stock_code else None
-        signal_relevant = _matches_signal_keyword(report_nm)
+        signal_relevant = _matches_signal_keyword(report_nm) or _matches_signal_keyword(summary)
         if signal_relevant:
-            event_type = "DART_SIGNAL:" + (report_nm[:490] if report_nm else "")
+            event_type = DART_SIGNAL_EVENT_TYPE_PREFIX + (
+                (report_nm[:490] if report_nm else (summary or "")[:490])
+            )
         else:
             event_type = (report_nm or "")[:500]
         items.append({
@@ -142,6 +151,12 @@ def to_collected_items(raw_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "eventType": event_type,
             "signalRelevant": signal_relevant,
         })
+    signal_count = sum(1 for it in items if it.get("signalRelevant"))
+    if signal_count:
+        _logger.info(
+            "DART collected items with signal keywords",
+            extra={"total": len(items), "signalRelevant": signal_count},
+        )
     return items
 
 
